@@ -1,13 +1,11 @@
 package com.evidentid.http.server.api
 
-import akka.http.scaladsl.server.{Directives, Route}
+import akka.http.scaladsl.server.Route
 import com.evidentid.http.server.EndpointRoute
 import com.evidentid.http.server.EndpointRoute.RouteBinding
-import sttp.apispec.openapi.circe.yaml._
-import sttp.tapir.docs.openapi._
+import sttp.tapir.AnyEndpoint
 import sttp.tapir.server.akkahttp.{AkkaHttpServerInterpreter, AkkaHttpServerOptions}
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
-import sttp.tapir.{endpoint, stringBody, AnyEndpoint}
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 
@@ -16,30 +14,16 @@ class DocsRoute(endpointsToIncludeInDocs: Seq[AnyEndpoint])(
     val executionContextExecutor: ExecutionContextExecutor
 ) extends EndpointRoute {
 
-  private lazy val docs: String = {
-    val version = Option(getClass.getPackage.getImplementationVersion).getOrElse("unknown")
-    val eps = endpointsToIncludeInDocs.filterNot(_.info.name.contains("docs"))
-    val docs = OpenAPIDocsInterpreter(OpenAPIDocsOptions.default).toOpenAPI(eps, "EID Scala app", version)
-    docs.toYaml
-  }
-
-  val routeBindings: Seq[RouteBinding[_, _, _]] = Seq(RouteBinding(getDocs) { _ =>
-    Future.successful(Right(docs))
-  })
-
-  private def getDocs =
-    endpoint
-      .in("docs")
-      .out(stringBody)
-      .get
+  override val routeBindings: Seq[RouteBinding[_, _, _]] = Seq.empty
 
   private val swaggerUIRoutes: Route = {
     val swaggerEndpoints =
-      SwaggerInterpreter().fromEndpoints[Future](endpointsToIncludeInDocs.toList, "EID Scala app", "unknown")
+      SwaggerInterpreter()
+        .fromEndpoints[Future](endpointsToIncludeInDocs.toList, "EID Scala app", "unknown")
     AkkaHttpServerInterpreter().toRoute(swaggerEndpoints)
   }
 
-  override def route: Route = Directives.concat(super.route, swaggerUIRoutes)
+  override def route: Route = swaggerUIRoutes
 }
 
 object DocsRoute {
