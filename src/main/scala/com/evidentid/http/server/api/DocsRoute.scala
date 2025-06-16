@@ -1,22 +1,24 @@
 package com.evidentid.http.server.api
 
+import akka.http.scaladsl.server.{Directives, Route}
 import com.evidentid.http.server.EndpointRoute
 import com.evidentid.http.server.EndpointRoute.RouteBinding
 import sttp.apispec.openapi.circe.yaml._
 import sttp.tapir.docs.openapi._
-import sttp.tapir.server.akkahttp.AkkaHttpServerOptions
+import sttp.tapir.server.akkahttp.{AkkaHttpServerInterpreter, AkkaHttpServerOptions}
+import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import sttp.tapir.{endpoint, stringBody, AnyEndpoint}
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 
 class DocsRoute(endpointsToIncludeInDocs: Seq[AnyEndpoint])(
-  implicit val serverSettings: AkkaHttpServerOptions,
-  val executionContextExecutor: ExecutionContextExecutor
+    implicit val serverSettings: AkkaHttpServerOptions,
+    val executionContextExecutor: ExecutionContextExecutor
 ) extends EndpointRoute {
 
   private lazy val docs: String = {
-    val version = sys.env.getOrElse("APP_VERSION", "unknown")
-    val eps = endpointsToIncludeInDocs ++ this.endpoints
+    val version = Option(getClass.getPackage.getImplementationVersion).getOrElse("unknown")
+    val eps = endpointsToIncludeInDocs.filterNot(_.info.name.contains("docs"))
     val docs = OpenAPIDocsInterpreter(OpenAPIDocsOptions.default).toOpenAPI(eps, "EID Scala app", version)
     docs.toYaml
   }
@@ -31,12 +33,19 @@ class DocsRoute(endpointsToIncludeInDocs: Seq[AnyEndpoint])(
       .out(stringBody)
       .get
 
+  private val swaggerUIRoutes: Route = {
+    val swaggerEndpoints =
+      SwaggerInterpreter().fromEndpoints[Future](endpointsToIncludeInDocs.toList, "EID Scala app", "unknown")
+    AkkaHttpServerInterpreter().toRoute(swaggerEndpoints)
+  }
+
+  override def route: Route = Directives.concat(super.route, swaggerUIRoutes)
 }
 
 object DocsRoute {
 
   def apply(
-    endpointsToIncludeInDocs: Seq[AnyEndpoint]*
+      endpointsToIncludeInDocs: Seq[AnyEndpoint]*
   )(implicit serverSettings: AkkaHttpServerOptions, executionContextExecutor: ExecutionContextExecutor): DocsRoute = {
     new DocsRoute(endpointsToIncludeInDocs.flatten)
   }
