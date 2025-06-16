@@ -10,8 +10,8 @@ import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import scala.concurrent.{ExecutionContextExecutor, Future}
 
 class DocsRoute(endpointsToIncludeInDocs: Seq[AnyEndpoint])(
-    implicit val serverSettings: AkkaHttpServerOptions,
-    val executionContextExecutor: ExecutionContextExecutor
+  implicit val serverSettings: AkkaHttpServerOptions,
+  val executionContextExecutor: ExecutionContextExecutor
 ) extends EndpointRoute {
 
   override val routeBindings: Seq[RouteBinding[_, _, _]] = Seq.empty
@@ -29,7 +29,7 @@ class DocsRoute(endpointsToIncludeInDocs: Seq[AnyEndpoint])(
 object DocsRoute {
 
   def apply(
-      endpointsToIncludeInDocs: Seq[AnyEndpoint]*
+    endpointsToIncludeInDocs: Seq[AnyEndpoint]*
   )(implicit serverSettings: AkkaHttpServerOptions, executionContextExecutor: ExecutionContextExecutor): DocsRoute = {
     new DocsRoute(endpointsToIncludeInDocs.flatten)
   }
