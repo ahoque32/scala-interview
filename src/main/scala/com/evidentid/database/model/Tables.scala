@@ -92,4 +92,80 @@ object Tables {
   /** Collection-like TableQuery object for table ArchivedRatesProviders */
   lazy val ArchivedRatesProviders = new TableQuery(tag => new ArchivedRatesProviders(tag))
 
+  /** Entity class storing rows of table CurrencyRates
+   *  @param id Database column id SqlType(uuid), PrimaryKey
+   *  @param providerId Database column provider_id SqlType(uuid)
+   *  @param baseCurrency Database column base_currency SqlType(varchar)
+   *  @param targetCurrency Database column target_currency SqlType(varchar)
+   *  @param rate Database column rate SqlType(decimal)
+   *  @param apiLastUpdatedAt Database column api_last_updated_at SqlType(timestamptz)
+   *  @param fetchedAt Database column fetched_at SqlType(timestamptz)
+   */
+  case class CurrencyRate(
+    id: java.util.UUID,
+    providerId: java.util.UUID,
+    baseCurrency: String,
+    targetCurrency: String,
+    rate: BigDecimal,
+    apiLastUpdatedAt: DateTime,
+    fetchedAt: DateTime
+  )
+
+  /** GetResult implicit for fetching CurrencyRate objects using plain SQL queries */
+  implicit def GetResultCurrencyRate(implicit
+    grUUID: GR[java.util.UUID],
+    grString: GR[String],
+    grBigDecimal: GR[BigDecimal],
+    grDateTime: GR[DateTime]
+  ): GR[CurrencyRate] = GR { prs =>
+    import prs._
+    CurrencyRate.tupled(
+      (<<[java.util.UUID],   // id
+       <<[java.util.UUID],   // providerId
+       <<[String],         // baseCurrency
+       <<[String],         // targetCurrency
+       <<[BigDecimal],     // rate
+       <<[DateTime],       // apiLastUpdatedAt
+       <<[DateTime])        // fetchedAt
+    )
+  }
+
+  /** Table description of table currency_rates. Objects of this class serve as prototypes for rows in queries. */
+  class CurrencyRates(_tableTag: Tag) extends profile.api.Table[CurrencyRate](_tableTag, "currency_rates") {
+    def * = (id, providerId, baseCurrency, targetCurrency, rate, apiLastUpdatedAt, fetchedAt) <> (CurrencyRate.tupled, CurrencyRate.unapply)
+
+    /** Maps whole row to an option. Useful for outer joins. */
+    def ? = (
+      (Rep.Some(id), Rep.Some(providerId), Rep.Some(baseCurrency), Rep.Some(targetCurrency), Rep.Some(rate), Rep.Some(apiLastUpdatedAt), Rep.Some(fetchedAt))
+    ).shaped.<>(
+      { r => import r._; _1.map(_ => CurrencyRate.tupled((_1.get, _2.get, _3.get, _4.get, _5.get, _6.get, _7.get))) },
+      (_: Any) => throw new Exception("Inserting into ? projection not supported.")
+    )
+
+    /** Database column id SqlType(uuid), PrimaryKey */
+    val id: Rep[java.util.UUID] = column[java.util.UUID]("id", O.PrimaryKey)
+    /** Database column provider_id SqlType(uuid) */
+    val providerId: Rep[java.util.UUID] = column[java.util.UUID]("provider_id")
+    /** Database column base_currency SqlType(varchar) */
+    val baseCurrency: Rep[String] = column[String]("base_currency")
+    /** Database column target_currency SqlType(varchar) */
+    val targetCurrency: Rep[String] = column[String]("target_currency")
+    /** Database column rate SqlType(decimal) */
+    val rate: Rep[BigDecimal] = column[BigDecimal]("rate")
+    /** Database column api_last_updated_at SqlType(timestamptz) */
+    val apiLastUpdatedAt: Rep[DateTime] = column[DateTime]("api_last_updated_at")
+    /** Database column fetched_at SqlType(timestamptz) */
+    val fetchedAt: Rep[DateTime] = column[DateTime]("fetched_at")
+
+    /** Foreign key referencing RatesProviders (database name fk_provider) */
+    lazy val ratesProviderFk = foreignKey("fk_provider", providerId, RatesProviders)(_.id, onUpdate=ForeignKeyAction.NoAction, onDelete=ForeignKeyAction.Cascade)
+
+    /** Index over (provider_id, target_currency, api_last_updated_at DESC) (database name idx_currency_rates_provider_target) */
+    val idxProviderTargetTime = index("idx_currency_rates_provider_target", (providerId, targetCurrency, apiLastUpdatedAt), unique = false)
+  }
+
+  /** Collection-like TableQuery object for table CurrencyRates */
+  lazy val CurrencyRates = new TableQuery(tag => new CurrencyRates(tag))
+
+
 }

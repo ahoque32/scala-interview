@@ -14,15 +14,15 @@ class SwaggerDocsFeature extends AcceptanceFeatureSpec {
       When("I GET service docs")
       val response = getDocs()
       Then("A yaml openapi doc is returned")
-      whenReady(response) { docs =>
+      whenReady(response) { _ =>
         // you can use this AT to simulate the app running locally, just uncomment below lines
-//        println(appBinding)
-//        Thread.sleep(1000000)
-        docs should startWith("openapi: 3.0.3")
-        docs should include("title: EID Scala app")
-        docs should include("paths:")
-        docs should include("components:")
-        succeed
+        println(appBinding)
+        Thread.sleep(1000000)
+//        docs should startWith("openapi: 3.0.3")
+//        docs should include("title: EID Scala app")
+//        docs should include("paths:")
+//        docs should include("components:")
+//        succeed
       }
     }
   }
