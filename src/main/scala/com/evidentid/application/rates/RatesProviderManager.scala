@@ -1,24 +1,55 @@
 package com.evidentid.application.rates
 
-// Removed: import akka.http.scaladsl.model.DateTime -- type inferred from Rate/UpstreamRateResponse
 import com.evidentid.application.rates.api.Rate
 import com.evidentid.application.upstream.RateProvider
 import com.evidentid.application.upstream.RateProvider.UpstreamRateResponse
 import com.evidentid.database.DatabaseManager
+import com.evidentid.database.model.Tables
 import com.evidentid.logging.Logging
+import akka.http.scaladsl.model.DateTime
 
-// Removed: import java.util.UUID -- type inferred from Rate/UpstreamRateResponse
-import scala.annotation.nowarn
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
+import scala.math.BigDecimal
 
-@nowarn
-class RatesProviderManager(database: DatabaseManager, rateProvider: RateProvider)(implicit executionContext: ExecutionContext)
-    extends Logging {
+class RatesProviderManager(database: DatabaseManager, rateProvider: RateProvider)(implicit ec: ExecutionContext) extends Logging {
 
   def getRates(currencyCode: String): Future[Seq[Rate]] = {
-    // TODO: The URL is still hardcoded in currencyToUrl, RateProvider will need to use it or be configured.
-    val url = currencyToUrl(currencyCode) // This URL isn't actually used by RateProvider.getRate's current mock
-    rateProvider.getRate(url, currencyCode).map(upstreamRates => upstreamRates.map(toApiRate))
+    database.getFirstRateProvider(currencyCode.toUpperCase).flatMap {
+      case Some(provider) =>
+        logger.info(s"Found provider '${provider.providerName}' (ID: ${provider.id}) for $currencyCode from DB.")
+        rateProvider.getRate(provider.url, currencyCode, provider.id).flatMap { upstreamRates =>
+          if (upstreamRates.nonEmpty) {
+            val now = DateTime.now
+            val newRateRows = upstreamRates.map { rate =>
+              Tables.CurrencyRate(
+                id = UUID.randomUUID(),
+                providerId = rate.providerId,
+                baseCurrency = rate.fromCurrency,
+                targetCurrency = rate.toCurrency,
+                rate = BigDecimal(rate.rate.toString),
+                apiLastUpdatedAt = rate.date,
+                fetchedAt = now
+              )
+            }
+
+            database.insertRates(newRateRows).map { numInserted =>
+              logger.info(s"Successfully inserted $numInserted rates into the database for $currencyCode.")
+              upstreamRates.map(toApiRate)
+            }.recover { case ex: Throwable =>
+              logger.error(s"Failed to insert rates for $currencyCode into the database.", ex)
+              upstreamRates.map(toApiRate)
+            }
+          } else {
+            logger.warn(s"No rates received from RateProvider for $currencyCode and provider '${provider.providerName}'.")
+            Future.successful(Seq.empty[Rate])
+          }
+        }
+
+      case None =>
+        logger.warn(s"No active provider found for currency code: $currencyCode")
+        Future.successful(Seq.empty[Rate])
+    }
   }
 
   private def toApiRate(upstream: UpstreamRateResponse): Rate = {
@@ -27,20 +58,18 @@ class RatesProviderManager(database: DatabaseManager, rateProvider: RateProvider
       toCurrency = upstream.toCurrency,
       rate = upstream.rate,
       date = upstream.date,
-      rateProviderId = upstream.providerId // Field name mapping
+      rateProviderId = upstream.providerId
     )
   }
 
-  // hardcoded URL for 1st iteration - will be used by RateProvider later
-  private def currencyToUrl(currencyCode: String): String = s"http://example.com/$currencyCode"
+  // currencyToUrl is no longer directly used here as provider.url from DB is used.
+  // private def currencyToUrl(currencyCode: String): String = s"http://example.com/$currencyCode"
 }
 
 object RatesProviderManager {
-
   def apply(database: DatabaseManager, rateProvider: RateProvider)(implicit
       executionContext: ExecutionContext
   ): RatesProviderManager = {
     new RatesProviderManager(database, rateProvider)
   }
-
 }

@@ -10,8 +10,11 @@ import sttp.model.Uri
 import sttp.tapir.Schema
 import com.evidentid.logging.Logging
 
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success, Try}
 
 class RateProvider(httpClient: HttpClient, config: Config)(implicit ec: ExecutionContext) extends Logging {
   import RateProvider._ // Companion object imports
@@ -20,7 +23,7 @@ class RateProvider(httpClient: HttpClient, config: Config)(implicit ec: Executio
   private val baseUrl: String = config.getString("exchangerate-api.base-url")
   private val apiBaseCurrency: String = config.getString("exchangerate-api.base-currency")
 
-  def getRate(_ignoredUrl: String, requestedCurrencyCode: String): Future[Seq[UpstreamRateResponse]] = {
+  def getRate(_ignoredUrl: String, requestedCurrencyCode: String, actualProviderId: java.util.UUID): Future[Seq[UpstreamRateResponse]] = {
     val _ = _ignoredUrl // Explicitly mark as unused
     if (apiKey == "YOUR_API_KEY_HERE") {
       logger.warn("API key for ExchangeRate-API is a placeholder. Real API calls will fail.")
@@ -39,12 +42,18 @@ class RateProvider(httpClient: HttpClient, config: Config)(implicit ec: Executio
             if (response.body.result == "success") {
               response.body.conversion_rates.get(requestedCurrencyCode.toUpperCase) match {
                 case Some(rateValue) =>
+                  val apiUpdateTime = Try(ZonedDateTime.parse(response.body.time_last_update_utc, DateTimeFormatter.RFC_1123_DATE_TIME)) match {
+                    case Success(zdt) => DateTime(zdt.toInstant.toEpochMilli)
+                    case Failure(ex) =>
+                      logger.error(s"Failed to parse time_last_update_utc '${response.body.time_last_update_utc}': ${ex.getMessage}. Defaulting to DateTime.now.", ex)
+                      DateTime.now // Fallback
+                  }
                   Seq(UpstreamRateResponse(
-                    fromCurrency = apiBaseCurrency, // This is the base for the rates fetched
-                    toCurrency = requestedCurrencyCode.toUpperCase, // The target currency
+                    fromCurrency = apiBaseCurrency,
+                    toCurrency = requestedCurrencyCode.toUpperCase,
                     rate = rateValue,
-                    date = DateTime.now, // Or use time_last_update_utc from API response
-                    providerId = UUID.randomUUID() // Placeholder ID, could be linked to a DB provider ID later
+                    date = apiUpdateTime, // Use parsed time from API
+                    providerId = actualProviderId // Use actual provider ID from parameter
                   ))
                 case None =>
                   logger.warn(s"Currency code '$requestedCurrencyCode' not found in API response from $fullApiUrl.")

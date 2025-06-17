@@ -1,6 +1,6 @@
 package com.evidentid.database
 
-import com.evidentid.application.rates.RatesProvidersCapability
+import com.evidentid.application.rates.{CurrencyRatesCapability, RatesProvidersCapability}
 import com.evidentid.application.status.HealthCheckCapability
 import com.evidentid.logging.Logging
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
@@ -11,6 +11,7 @@ import scala.util.{Failure, Success, Try}
 class DatabaseManager(val datasource: HikariDataSource, val database: DatabaseWrapper, val flyway: Flyway)
     extends HealthCheckCapability
     with RatesProvidersCapability
+    with CurrencyRatesCapability
     with Logging {
 
   lazy val totalMigrations: Int = flyway.info().all().length
