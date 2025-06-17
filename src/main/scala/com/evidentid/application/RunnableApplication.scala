@@ -8,6 +8,7 @@ import com.evidentid.application.rates.api.RatesProviderRoute
 import com.evidentid.application.status.HealthCheckManager
 import com.evidentid.application.status.api.HealthCheckRoute
 import com.evidentid.database.DatabaseManager
+
 import com.evidentid.http.server.api.DocsRoute
 import com.evidentid.logging.Logging
 import com.typesafe.config.Config
@@ -75,7 +76,11 @@ class RunnableApplication(
     val healthCheckManager = HealthCheckManager(Instant.now, databaseManager)
     val healthCheckRoute = HealthCheckRoute(healthCheckManager)
 
-    val ratesProviderManager = RatesProviderManager(databaseManager)
+    // Setup HttpClient for RateProvider
+    val httpClient = com.evidentid.http.client.HttpClient(system.classicSystem) // Use HttpClient's companion apply method
+
+    val rateProvider = com.evidentid.application.upstream.RateProvider(httpClient)
+    val ratesProviderManager = RatesProviderManager(databaseManager, rateProvider)
     val ratesProviderRoute = RatesProviderRoute(ratesProviderManager)
 
     val docsRoute = DocsRoute(healthCheckRoute.endpoints, ratesProviderRoute.endpoints)
