@@ -8,13 +8,21 @@ import com.evidentid.application.rates.api.RatesProviderRoute
 import com.evidentid.application.status.HealthCheckManager
 import com.evidentid.application.status.api.HealthCheckRoute
 import com.evidentid.database.DatabaseManager
+
 import com.evidentid.http.server.api.DocsRoute
 import com.evidentid.logging.Logging
 import com.typesafe.config.Config
+// Added imports for DB query
+import slick.jdbc.PostgresProfile.api._
+import slick.jdbc.GetResult // Added import for GetResult
+import scala.concurrent.Await
+import scala.concurrent.duration._
 import sttp.tapir.server.akkahttp.AkkaHttpServerOptions
 
 import java.net.InetSocketAddress
 import java.time.{Clock, Instant}
+import java.util.UUID
+import java.sql.Timestamp
 import java.util.concurrent.Executors
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
@@ -53,6 +61,72 @@ class RunnableApplication(
     logger.info("Starting Flyway DB migration")
     databaseManager.migrate()
     logger.info("Database Flyway DB migration done, adding database shutdown task to coordinated shutdown")
+
+    // Print flyway_schema_history content
+    logger.info("--- Flyway Schema History ---")
+    // system.dispatcher will be implicitly available for Await and potentially for Slick's run if needed by its specific signature
+    // If DatabaseWrapper.run needs an explicit EC, it would be passed there.
+    // For now, removing the explicit 'ec' val as it was flagged as unused and run should pick up an EC.
+    try {
+      val action = sql"SELECT version, description, type, script, checksum, installed_by, installed_on, execution_time, success FROM flyway_schema_history ORDER BY installed_rank".as[(Option[String], String, String, String, Option[Int], String, java.sql.Timestamp, Int, Boolean)]
+      // Corrected: use databaseManager.database.run directly
+      // Await.result itself needs an ExecutionContext, which system.dispatcher (imported as system.dispatcher) should provide implicitly.
+      val results = Await.result(databaseManager.database.run(action), 10.seconds) // Blocking call
+      if (results.isEmpty) {
+        logger.info("(empty)")
+      } else {
+        results.foreach {
+          case (version, description, typ, script, checksum, installed_by, installed_on, execution_time, success) =>
+            logger.info(
+              s"Version: ${version.getOrElse("N/A")}, Description: $description, Type: $typ, Script: $script, Checksum: ${checksum.getOrElse("N/A")}, InstalledBy: $installed_by, InstalledOn: $installed_on, ExecTime: ${execution_time}ms, Success: $success"
+            )
+        }
+      }
+    } catch {
+      case e: Exception =>
+        logger.error(s"Failed to query flyway_schema_history: ${e.getMessage}", e)
+    }
+    logger.info("--- End Flyway Schema History ---")
+
+    // --- Print rates_providers content ---
+    logger.info("--- Rates Providers Table ---")
+    case class RateProviderRow(id: UUID, providerName: String, currencyCode: String, url: String, createdAt: Timestamp, modifiedAt: Timestamp)
+    // system.dispatcher is already implicitly available from the ActorSystem 'system'
+    try {
+      // Define the mapping from SQL result columns to the case class fields
+      implicit val getRateProviderResult: GetResult[RateProviderRow] = GetResult(r => RateProviderRow(UUID.fromString(r.nextString()), r.nextString(), r.nextString(), r.nextString(), r.nextTimestamp(), r.nextTimestamp()))
+      val action = sql"SELECT id, provider_name, currency_code, url, created_at, modified_at FROM rates_providers".as[RateProviderRow]
+      val results = Await.result(databaseManager.database.run(action), 10.seconds)
+      if (results.isEmpty) {
+        logger.info("(empty)")
+      } else {
+        results.foreach(row => logger.info(row.toString))
+      }
+    } catch {
+      case e: Exception =>
+        logger.error(s"Failed to query rates_providers: ${e.getMessage}", e)
+    }
+    logger.info("--- End Rates Providers Table ---")
+
+    // --- Print archived_rates_providers content ---
+    logger.info("--- Archived Rates Providers Table ---")
+    case class ArchivedRateProviderRow(id: UUID, providerName: String, currencyCode: String, url: String, createdAt: Timestamp, modifiedAt: Timestamp, archivedAt: Timestamp)
+    try {
+      // Define the mapping from SQL result columns to the case class fields
+      implicit val getArchivedRateProviderResult: GetResult[ArchivedRateProviderRow] = GetResult(r => ArchivedRateProviderRow(UUID.fromString(r.nextString()), r.nextString(), r.nextString(), r.nextString(), r.nextTimestamp(), r.nextTimestamp(), r.nextTimestamp()))
+      val action = sql"SELECT id, provider_name, currency_code, url, created_at, modified_at, archived_at FROM archived_rates_providers".as[ArchivedRateProviderRow]
+      val results = Await.result(databaseManager.database.run(action), 10.seconds)
+      if (results.isEmpty) {
+        logger.info("(empty)")
+      } else {
+        results.foreach(row => logger.info(row.toString))
+      }
+    } catch {
+      case e: Exception =>
+        logger.error(s"Failed to query archived_rates_providers: ${e.getMessage}", e)
+    }
+    logger.info("--- End Archived Rates Providers Table ---")
+
     addDatabaseCoordinatedShutdownTask(databaseManager)
     logger.info("Database setup completed")
 
@@ -75,7 +149,11 @@ class RunnableApplication(
     val healthCheckManager = HealthCheckManager(Instant.now, databaseManager)
     val healthCheckRoute = HealthCheckRoute(healthCheckManager)
 
-    val ratesProviderManager = RatesProviderManager(databaseManager)
+    // Setup HttpClient for RateProvider
+    val httpClient = com.evidentid.http.client.HttpClient(system.classicSystem) // Use HttpClient's companion apply method
+
+    val rateProvider = com.evidentid.application.upstream.RateProvider(httpClient, config) // Pass config
+    val ratesProviderManager = RatesProviderManager(databaseManager, rateProvider)
     val ratesProviderRoute = RatesProviderRoute(ratesProviderManager)
 
     val docsRoute = DocsRoute(healthCheckRoute.endpoints, ratesProviderRoute.endpoints)
