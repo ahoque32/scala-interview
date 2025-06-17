@@ -12,7 +12,7 @@ import com.evidentid.database.DatabaseManager
 import com.evidentid.http.server.api.DocsRoute
 import com.evidentid.logging.Logging
 import com.typesafe.config.Config
-// Added imports for DB query
+//  DB query
 import slick.jdbc.PostgresProfile.api._
 import slick.jdbc.GetResult // Added import for GetResult
 import scala.concurrent.Await
@@ -64,13 +64,11 @@ class RunnableApplication(
 
     // Print flyway_schema_history content
     logger.info("--- Flyway Schema History ---")
-    // system.dispatcher will be implicitly available for Await and potentially for Slick's run if needed by its specific signature
-    // If DatabaseWrapper.run needs an explicit EC, it would be passed there.
-    // For now, removing the explicit 'ec' val as it was flagged as unused and run should pick up an EC.
+   
     try {
       val action = sql"SELECT version, description, type, script, checksum, installed_by, installed_on, execution_time, success FROM flyway_schema_history ORDER BY installed_rank".as[(Option[String], String, String, String, Option[Int], String, java.sql.Timestamp, Int, Boolean)]
       // Corrected: use databaseManager.database.run directly
-      // Await.result itself needs an ExecutionContext, which system.dispatcher (imported as system.dispatcher) should provide implicitly.
+      // 
       val results = Await.result(databaseManager.database.run(action), 10.seconds) // Blocking call
       if (results.isEmpty) {
         logger.info("(empty)")
