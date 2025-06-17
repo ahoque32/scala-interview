@@ -152,7 +152,7 @@ class RunnableApplication(
     // Setup HttpClient for RateProvider
     val httpClient = com.evidentid.http.client.HttpClient(system.classicSystem) // Use HttpClient's companion apply method
 
-    val rateProvider = com.evidentid.application.upstream.RateProvider(httpClient)
+    val rateProvider = com.evidentid.application.upstream.RateProvider(httpClient, config) // Pass config
     val ratesProviderManager = RatesProviderManager(databaseManager, rateProvider)
     val ratesProviderRoute = RatesProviderRoute(ratesProviderManager)
 
